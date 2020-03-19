@@ -1,0 +1,15 @@
+.idea
+checkpoint
+results
+.ipynb_checkpoints
+*.log
+*.npz
+data/h36m.zip
+data/input_video.mp4
+
+
+inference/*/*.jpg
+inference/*/*.mp4
+inference/videos
+*.pkl
+runs
