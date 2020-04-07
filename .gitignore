@@ -8,8 +8,10 @@ data/h36m.zip
 data/input_video.mp4
 
 
-inference/*/*.jpg
 inference/*/*.mp4
-inference/videos
+!inference/videos/kunkun_cut.mp4
+inference/posenet_tf/_models
+inference/posenet_pytorch/_models
 *.pkl
 runs
+**/__pycache__

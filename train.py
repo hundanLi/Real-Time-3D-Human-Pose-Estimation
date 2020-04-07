@@ -2,7 +2,9 @@ import errno
 import os
 import sys
 from time import time
-
+import matplotlib
+matplotlib.use('Agg')
+import matplotlib.pyplot as plt
 import torch.optim as optim
 
 from common.arguments import parse_args
@@ -270,6 +272,9 @@ if __name__ == '__main__':
     print('INFO: Testing on {} frames'.format(test_generator.num_frames()))
 
     epoch = 0
+    losses_3d_train = []
+    losses_3d_train_eval = []
+    losses_3d_valid = []
     # 加载预训练模型参数
     if args.resume:
         chk_filename = os.path.join(args.checkpoint, args.resume if args.resume else args.evaluate)
@@ -286,14 +291,16 @@ if __name__ == '__main__':
         else:
             print('WARNING: this checkpoint does not contain an optimizer state. The optimizer will be reinitialized.')
         lr = checkpoint['lr']
+        if "loss" in checkpoint and checkpoint['loss'] is not None:
+            losses_3d_train = checkpoint['loss'][0]
+            losses_3d_train_eval = checkpoint['loss'][1]
+            losses_3d_valid = checkpoint['loss'][2]
 
     # 开始训练
     print('** Note: reported losses are averaged over all frames and test-time augmentation is not used here.')
     print('** The final evaluation will be carried out after the last training epoch.')
     print("Training on ", device)
-    losses_3d_train = []
-    losses_3d_train_eval = []
-    losses_3d_valid = []
+
     while epoch < args.epochs:
         start_time = time()
         epoch_loss_3d_train = 0
@@ -424,16 +431,11 @@ if __name__ == '__main__':
                 'random_state': train_generator.random_state(),
                 'optimizer': optimizer.state_dict(),
                 'model_pos': model_train.state_dict(),
+                "loss": [losses_3d_train, losses_3d_train_eval, losses_3d_valid]
             }, chk_path)
 
         # 绘制并保存训练损失曲线
         if args.export_training_curves and epoch > 3:
-            if 'matplotlib' not in sys.modules:
-                import matplotlib
-
-                matplotlib.use('Agg')
-                import matplotlib.pyplot as plt
-
             plt.figure()
             epoch_x = np.arange(3, len(losses_3d_train)) + 1
             plt.plot(epoch_x, losses_3d_train[3:], '--', color='C0')
