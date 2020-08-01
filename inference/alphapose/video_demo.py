@@ -6,6 +6,9 @@ from mxnet import nd
 # ++++++++++++++++++++注意+++++++++++++++++++++++++
 import os
 import sys
+
+sys.path.append("../../")
+
 import time
 import cv2
 import matplotlib.pyplot as plt
@@ -19,7 +22,6 @@ from common.generators import UnchunkedGenerator
 from common.model import TemporalModel
 
 device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
-sys.path.append("../../")
 
 # 1. 加载目标检测器和2d关键点检测器
 detector_name = ['yolo3_mobilenet1.0_coco', 'yolo3_darknet53_coco']
@@ -349,6 +351,6 @@ if __name__ == '__main__':
     file_ext = filename.rsplit('.', 1)[-1]
     output_path = filename.rsplit('.', 1)[0] + "_output." + file_ext
     video_pose(video_path, ckpt_dir='../../checkpoint/detectron_pt_coco',
-               ckpt_name='arc_27_ch_512_epoch_30.bin', filter_widths=[3, 3, 3], show=True, channels=512,
+               ckpt_name='arc_27_ch_512_epoch_80.bin', filter_widths=[3, 3, 3], show=True, channels=512,
                save_file=output_path)
     print("Finish prediction...")

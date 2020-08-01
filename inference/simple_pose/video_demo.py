@@ -6,6 +6,8 @@ from mxnet import nd
 # ++++++++++++++++++++注意+++++++++++++++++++++++++
 import os
 import sys
+
+sys.path.append("../../")
 import time
 import cv2
 import matplotlib.pyplot as plt
@@ -19,7 +21,6 @@ from common.generators import UnchunkedGenerator
 from common.model import TemporalModel
 
 device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
-sys.path.append("../../")
 
 # 1. 加载目标检测器和2d关键点检测器
 detector_name = ['yolo3_mobilenet1.0_coco', 'yolo3_darknet53_coco']
@@ -133,7 +134,8 @@ def render_image(coords_3d, skeleton, img, coords, confidence, class_ids, bboxes
     ax_in.get_yaxis().set_visible(False)
     ax_in.set_axis_off()
     ax_in.set_title('Input')
-    utils.viz.plot_keypoints(img, coords, confidence, class_ids, bboxes, scores, ax=ax_in)
+    # utils.viz.plot_keypoints(img, coords, confidence, class_ids, bboxes, scores, ax=ax_in)
+    ax_in.imshow(img)
 
     # 3D
     ax_3d = fig.add_subplot(1, 2, 2, projection='3d')
@@ -328,7 +330,7 @@ def video_pose(filepath, ckpt_dir, ckpt_name, filter_widths, show=False, channel
 
         # 渲染图像
         result_image = render_image(coords_3d=coords_3d, skeleton=Skeleton(), **joints_dict)
-        cv2.putText(result_image, "FPS: %f" % fps, (10, 10), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0, 255, 0), 2)
+        # cv2.putText(result_image, "FPS: %.3f" % fps, (10, 20), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0, 255, 0), 2)
         result_image = cv2.cvtColor(result_image, cv2.COLOR_RGB2BGR)
 
         if show:
@@ -350,8 +352,8 @@ if __name__ == '__main__':
     video_path = '../videos/kunkun_cut.mp4'
     filename = video_path.rsplit('/', 1)[-1]
     file_ext = filename.rsplit('.', 1)[-1]
-    output_path = filename.rsplit('.', 1)[0] + "_output." + file_ext
+    output_path = filename.rsplit('.', 1)[0] + "_output_1." + file_ext
     video_pose(video_path, ckpt_dir='../../checkpoint/detectron_pt_coco',
-               ckpt_name='arc_27_ch_512_epoch_30.bin', filter_widths=[3, 3, 3], show=False, channels=512,
+               ckpt_name='arc_1_ch_512_epoch_40.bin', filter_widths=[1, 1, 1], show=True, channels=512,
                save_file=output_path)
     print("Finish prediction...")

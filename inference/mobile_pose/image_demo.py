@@ -3,7 +3,7 @@
 
 # # 基于mobilenet的图像3D姿态估计
 import mxnet as mx
-from gluoncv import model_zoo, data, utils
+from gluoncv import model_zoo, data
 from gluoncv.data.transforms.pose import heatmap_to_coord, upscale_bbox_fn, crop_resize_normalize
 import matplotlib.pyplot as plt
 from mpl_toolkits.mplot3d import Axes3D
@@ -13,49 +13,16 @@ import time
 import torch
 import sys
 
-from common.camera import camera_to_world
-from common.model import TemporalModel
-from common.generators import UnchunkedGenerator
-
 sys.path.append('../../')
-device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
 
-
-def normalize_screen_coordinates(X, w, h):
-    """
-    坐标标准化
-    Args:
-        X:
-        w:
-        h:
-
-    Returns:
-
-    """
-    assert X.shape[-1] == 2
-
-    # 将 x 坐标 从[0, w] 映射到 [-1, 1], 同时保留宽高比
-    # noinspection PyTypeChecker
-    return X / w * 2 - [1, h / w]
-
-
-def get_pose3d_predictor(ckpt_dir, ckpt_name, filter_widths, causal=False, channels=1024):
-    ckpt_path = os.path.join(ckpt_dir, ckpt_name)
-    print('Loading checkpoint', ckpt_path)
-    checkpoint = torch.load(ckpt_path, map_location=lambda storage, loc: storage)
-    print('This model was trained for {} epochs'.format(checkpoint['epoch']))
-
-    pose3d_predictor = TemporalModel(17, 2, 17, filter_widths=filter_widths, causal=causal, channels=channels)
-    receptive_field = pose3d_predictor.receptive_field()
-    print('INFO: Receptive field: {} frames'.format(receptive_field))
-    pose3d_predictor.load_state_dict(checkpoint['model_pos'])
-
-    return pose3d_predictor.to(device).eval()
+from common.camera import camera_to_world
+from common.generators import UnchunkedGenerator
+from inference.commons import get_pose3d_predictor, normalize_screen_coordinates, predict_3d_pos, Skeleton
 
 
 # 画图函数
 # noinspection PyUnresolvedReferences
-def render_image(coords_3d, skeleton, azim, input_video_frame, save=True):
+def render_image(coords_3d, skeleton, azim, input_video_frame, save=False, save_path='result.jpg'):
     # 人数
     num_persons = len(coords_3d)
 
@@ -103,31 +70,8 @@ def render_image(coords_3d, skeleton, azim, input_video_frame, save=True):
                                 [pos[j, 2], pos[j_parent, 2]], zdir='z', c=col)
 
     if save:
-        plt.savefig('result.svg')
-
-
-class Skeleton:
-    @staticmethod
-    def parents():
-        return np.array([-1, 0, 1, 2, 0, 4, 5, 0, 7, 8, 9, 8, 11, 12, 8, 14, 15])
-
-    @staticmethod
-    def joints_right():
-        return [1, 2, 3, 9, 10]
-
-
-# 预测3d坐标
-def predict_3d_pos(test_generator, predictor):
-    with torch.no_grad():
-        predictor.eval()
-        for _, batch, batch_2d in test_generator.next_epoch():
-            inputs_2d = torch.from_numpy(batch_2d.astype('float32'))
-            if torch.cuda.is_available():
-                inputs_2d = inputs_2d.cuda()
-
-            # Positional model
-            predicted_3d_pos = predictor(inputs_2d)
-            return predicted_3d_pos.squeeze(0).cpu().numpy()
+        plt.tight_layout()
+        plt.savefig(save_path)
 
 
 def detector_to_mobile_pose(img, class_ids, scores, bounding_boxs,
@@ -163,9 +107,9 @@ def detector_to_mobile_pose(img, class_ids, scores, bounding_boxs,
 
 # 加载3d模型
 ckpt_dir = '../../checkpoint/detectron_pt_coco'
-ckpt_name = 'arc_1_ch_512_epoch_40.bin'
+ckpt_name = 'arc_1_ch_1024_epoch_40.bin'
 filter_widths = [1, 1, 1]
-pose3d_predictor = get_pose3d_predictor(ckpt_dir, ckpt_name, filter_widths, channels=512)
+pose3d_predictor = get_pose3d_predictor(ckpt_dir, ckpt_name, filter_widths, channels=1024)
 
 # 加载2d模型
 detector_name = ['yolo3_mobilenet1.0_coco', 'yolo3_darknet53_coco']
@@ -175,76 +119,140 @@ pose_net = model_zoo.get_model(posenet_name[1], pretrained=True)
 detector.hybridize(static_alloc=True, static_shape=True)
 pose_net.hybridize(static_alloc=True, static_shape=True)
 
-
 # reset the detector to only detect human
 # noinspection PyUnresolvedReferences
 detector.reset_class(['person'], reuse_weights=['person'])
 
-im_fname = '../images/liuyifei2.jpg'
 
-# 1.预处理输入图像和检测人体
+def predict(img_path):
+    # 1.预处理输入图像和检测人体
+    x, img = data.transforms.presets.yolo.load_test(img_path, short=256)
+    # detector.summary(x)
+    # print("x.shape:", x.shape)
 
-x, img = data.transforms.presets.yolo.load_test(im_fname, short=360)
-# detector.summary(x)
-# print("x.shape:", x.shape)
+    start = time.time()
 
-start = time.time()
+    # detect persons and bbox,
+    class_ids, scores, bounding_boxes = detector(x)  # shape: [sample_idx, class_idx, instance]
+    # print("bounding_boxes.shape", bounding_boxes.shape, "bounding_boxes[0, 0]:", bounding_boxes[0, 0])
 
-# detect persons and bbox,
-class_IDs, scores, bounding_boxes = detector(x)  # shape: [sample_idx, class_idx, instance]
-# print("bounding_boxes.shape", bounding_boxes.shape, "bounding_boxes[0, 0]:", bounding_boxes[0, 0])
+    # 2.预处理检测器的输出张量作为mobile_pose的输入
+    pose_input, upscale_bbox = detector_to_mobile_pose(img, class_ids, scores, bounding_boxes)
+    print("detector cost time: {:.3f} seconds".format(time.time() - start))
+    global detector_time
+    detector_time += (time.time() - start)
 
-# 2.预处理检测器的输出张量作为mobile_pose的输入
-pose_input, upscale_bbox = detector_to_mobile_pose(img, class_IDs, scores, bounding_boxes)
-print("detector cost time: {:.3f} seconds".format(time.time() - start))
-prepare_end = time.time()
+    if pose_input is None:
+        return None, None
+    # 4.2d关节点预测
+    # pose_net.summary(pose_input)
+    start_time = time.time()
+    predicted_heatmap = pose_net(pose_input)
+    pred_coords, confidence = heatmap_to_coord(predicted_heatmap, upscale_bbox)
+    # print("type(pre_coords): {}, shape(pre_coords): {}".format(type(pred_coords), pred_coords.shape))
+    # print("pred_coords: {}".format(pred_coords))
+    global predictor_2d_time
+    predictor_2d_time += (time.time() - start_time)
+    print("2d pose predictor cost time: {:.3f} seconds".format(time.time() - start_time))
 
-# 4.2d关节点预测
-# pose_net.summary(pose_input)
-predicted_heatmap = pose_net(pose_input)
-pred_coords, confidence = heatmap_to_coord(predicted_heatmap, upscale_bbox)
-# print("type(pre_coords): {}, shape(pre_coords): {}".format(type(pred_coords), pred_coords.shape))
-# print("pred_coords: {}".format(pred_coords))
+    # 5.显示2d姿态
+    # ax = utils.viz.plot_keypoints(img, pred_coords, confidence, class_IDs, bounding_boxes, scores, box_thresh=0.5,
+    #                               keypoint_thresh=0.2)
+    # print(pred_coords)
+    # 6.坐标标准化
+    start_time = time.time()
+    kps = normalize_screen_coordinates(pred_coords.asnumpy(), w=img.shape[1], h=img.shape[0])
+    # print('kps.type: {}, kps.shape: {}'.format(type(kps), kps.shape))
 
-print("2d pose predictor cost time: {:.3f} seconds".format(time.time() - prepare_end))
+    # 7.2d keypoints生成器
+    receptive_field = pose3d_predictor.receptive_field()
+    pad = (receptive_field - 1) // 2  # Padding on each side
+    causal_shift = 0
 
-# 5.显示2d姿态
-ax = utils.viz.plot_keypoints(img, pred_coords, confidence, class_IDs, bounding_boxes, scores, box_thresh=0.5,
-                              keypoint_thresh=0.2)
-# print(pred_coords)
-# 6.坐标标准化
-kps = normalize_screen_coordinates(pred_coords.asnumpy(), w=img.shape[1], h=img.shape[0])
-# print('kps.type: {}, kps.shape: {}'.format(type(kps), kps.shape))
+    # 创建生成器作为3d预测器的输入
+    generator = UnchunkedGenerator(None, None, [kps], pad=pad, causal_shift=causal_shift, augment=False)
 
-# 7.2d keypoints生成器
-receptive_field = pose3d_predictor.receptive_field()
-pad = (receptive_field - 1) // 2  # Padding on each side
-causal_shift = 0
+    # 8.3d姿势估计和显示
+    prediction = predict_3d_pos(generator, pose3d_predictor)
+    global predictor_3d_time, full_time
+    predictor_3d_time += (time.time() - start_time)
+    full_time += (time.time() - start)
+    print("3d pose predictor cost time: {:.3f} seconds".format(time.time() - start_time))
+    # print("prediction.shape: ", prediction.shape)
 
-# 创建生成器作为3d预测器的输入
-generator = UnchunkedGenerator(None, None, [kps], pad=pad, causal_shift=causal_shift, augment=False)
+    rot = np.array([0.14070565, -0.15007018, -0.7552408, 0.62232804], dtype=np.float32)
+    prediction = camera_to_world(prediction, R=rot, t=0)
 
-# 8.3d姿势估计和显示
-start_time = time.time()
-prediction = predict_3d_pos(generator, pose3d_predictor)
-print("3d pose predictor cost time: {:.3f} seconds".format(time.time() - start_time))
-# print("prediction.shape: ", prediction.shape)
+    # We don't have the trajectory, but at least we can rebase the height
+    prediction[:, :, 2] -= np.min(prediction[:, :, 2])
+    elapsed = time.time() - start
+    print("Total elapsed time of predicting image file {}: {:.3f} seconds".format(img_path, elapsed))
+    return prediction, img
 
-rot = np.array([0.14070565, -0.15007018, -0.7552408, 0.62232804], dtype=np.float32)
-prediction = camera_to_world(prediction, R=rot, t=0)
 
-# We don't have the trajectory, but at least we can rebase the height
-prediction[:, :, 2] -= np.min(prediction[:, :, 2])
-# prediction = np.stack([prediction[0]])
-# 9.渲染图像
-render_image(coords_3d=prediction, skeleton=Skeleton,
-             azim=np.array(70., dtype=np.float32),
-             input_video_frame=img)
+def predict_img(img_path, show=True):
+    prediction, img = predict(img_path)
+    if prediction is None:
+        print("No humans found in image file:", img_path)
+        return
+    # 渲染图像
+    render_image(coords_3d=prediction, skeleton=Skeleton,
+                 azim=np.array(70., dtype=np.float32),
+                 input_video_frame=img)
 
-elapsed = time.time() - start
-print("Total elapsed time of 3d pose prediction: {:.3f} seconds".format(elapsed))
+    if show:
+        plt.show()
+    else:
+        plt.close()
 
-plt.show()
+
+def predict_imgs(img_dir, result_dir):
+    if not os.path.exists(result_dir):
+        os.mkdir(result_dir)
+
+    for parent, _, files in os.walk(img_dir):
+        frames = 0
+        for file in files:
+            img_path = os.path.join(parent, file)
+            save_path = os.path.join(result_dir, file)
+            # 读取图像和预测
+            prediction, img = predict(img_path)
+            if prediction is None:
+                print("No humans found in image file:", img_path)
+                continue
+            frames += 1
+            # 渲染图像
+            render_image(coords_3d=prediction, skeleton=Skeleton,
+                         azim=np.array(70., dtype=np.float32),
+                         input_video_frame=img, save=True, save_path=save_path)
+
+            plt.close()
+        print(detector_time, predictor_2d_time, predictor_3d_time, full_time)
+        print("detector fps:{:.3f}, 2d fps: {:.3f}, 3d fps: {:.3f}, fps: {:.3f}".format(frames / detector_time,
+                                                                                        frames / predictor_2d_time,
+                                                                                        frames / predictor_3d_time,
+                                                                                        frames / full_time))
+
+
+def bench_test(img_path):
+    frames = 100
+    start = time.time()
+    for i in range(frames):
+        predict_img(img_path, show=False)
+    fps = frames / (time.time() - start)
+    print("Fps: {:.3f}".format(fps))
+
 
 if __name__ == '__main__':
-    pass
+    detector_time = 0
+    predictor_2d_time = 0
+    predictor_3d_time = 0
+    full_time = 0
+    image_file = '../images/mpi_inf_3dhp_354.png'
+    # predict_img(img_path=image_file)
+
+    image_dir = '../images'
+    result_dir = 'output'
+    predict_imgs(image_dir, result_dir)
+
+    # bench_test(image_file)

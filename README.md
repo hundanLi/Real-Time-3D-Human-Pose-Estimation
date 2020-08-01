@@ -19,7 +19,7 @@ This repository is for **real-time 3D human pose estimation**.
 
   ```bash
   $ cd ${PROJECT_ROOT}/data
-  $ wget wget https://www.dropbox.com/s/e35qv3n6zlkouki/h36m.zip
+  $ wget https://www.dropbox.com/s/e35qv3n6zlkouki/h36m.zip
   $ python prepare_data_h36m.py --from-archive h36m.zip
   ```
 

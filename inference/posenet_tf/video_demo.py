@@ -164,7 +164,7 @@ def video_pose(filepath, show=True, save=False, save_file='output.mp4'):
         fps = 1 / (time.time() - fps_time)
         result_image = render_image(coords_3d=coords_3d, skeleton=Skeleton, azim=70., input_video_frame=draw_frame,
                                     save=False)
-        cv2.putText(result_image, "FPS: %f" % fps, (10, 20), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0, 255, 0), 2)
+        cv2.putText(result_image, "FPS: %.3f" % fps, (10, 20), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0, 255, 0), 2)
         result_image = cv2.cvtColor(result_image, cv2.COLOR_RGB2BGR)
 
         if show:
@@ -185,8 +185,8 @@ def video_pose(filepath, show=True, save=False, save_file='output.mp4'):
 
 
 if __name__ == '__main__':
-    video_path = '../videos/kunkun_cut.mp4'
+    video_path = '../videos/football-1.mp4'
     filename = video_path.rsplit('/', 1)[-1]
     file_ext = filename.rsplit('.', 1)[-1]
     output_path = filename.rsplit('.', 1)[0] + "_output." + file_ext
-    video_pose(video_path, show=True, save=False, save_file=output_path)
+    video_pose(video_path, show=True, save=True, save_file=output_path)

@@ -23,9 +23,9 @@ model = model.to(device)
 output_stride = model.output_stride
 # 加载3d模型
 ckpt_dir = '../../checkpoint/detectron_pt_coco'
-ckpt_name = 'arc_27_epoch_40.bin'
+ckpt_name = 'arc_27_ch_512_epoch_80.bin'
 filter_widths = [3, 3, 3]
-pose3d_predictor = get_pose3d_predictor(ckpt_dir, ckpt_name, filter_widths, channels=1024)
+pose3d_predictor = get_pose3d_predictor(ckpt_dir, ckpt_name, filter_widths, channels=512)
 rot = np.array([0.14070565, -0.15007018, -0.7552408, 0.62232804], dtype=np.float32)
 
 
@@ -147,8 +147,10 @@ def video_pose(filepath, show=True, save=False, save_file='output.mp4'):
                     coords_2d_list.insert(0, coords_2d_list[0])
             else:
                 # 视频末尾不足receive_field帧时，在右边进行pad操作
-                coords_2d_list.append(coords_2d_list[-1])
-
+                if len(coords_2d_list) > 0:
+                    coords_2d_list.append(coords_2d_list[-1])
+                else:
+                    break
         # 预测3d坐标
         predictions = predict_3d_joints(pose3d_predictor, np.stack(coords_2d_list), draw_frame.shape[1],
                                         draw_frame.shape[0])
@@ -156,7 +158,7 @@ def video_pose(filepath, show=True, save=False, save_file='output.mp4'):
         fps = 1 / (time.time() - fps_time)
         result_image = render_image(coords_3d=coords_3d, skeleton=Skeleton, azim=70., input_video_frame=draw_frame,
                                     save=False)
-        cv2.putText(result_image, "FPS: %f" % fps, (10, 20), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0, 255, 0), 2)
+        cv2.putText(result_image, "FPS: %.3f" % fps, (10, 20), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0, 255, 0), 2)
         result_image = cv2.cvtColor(result_image, cv2.COLOR_RGB2BGR)
 
         if show:
@@ -177,7 +179,7 @@ def video_pose(filepath, show=True, save=False, save_file='output.mp4'):
 
 
 if __name__ == '__main__':
-    video_path = '../videos/kunkun_cut.mp4'
+    video_path = '../videos/basketball-3.mp4'
     filename = video_path.rsplit('/', 1)[-1]
     file_ext = filename.rsplit('.', 1)[-1]
     output_path = filename.rsplit('.', 1)[0] + "_output." + file_ext

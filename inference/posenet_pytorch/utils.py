@@ -5,6 +5,7 @@ import matplotlib.pyplot as plt
 from mpl_toolkits.mplot3d import Axes3D
 from matplotlib.backends.backend_agg import FigureCanvasAgg
 import sys
+
 sys.path.append("../../")
 from common.model import TemporalModel
 
@@ -105,7 +106,6 @@ def render_image(coords_3d, skeleton, azim, input_video_frame, save=False, show=
         image = np.frombuffer(canvas.tostring_rgb(), dtype='uint8').reshape(int(height), int(width), 3)
         plt.close()
         return image
-
 
 
 class Skeleton:

@@ -56,9 +56,7 @@ def predict_3d_pos(test_generator, predictor):
     with torch.no_grad():
         predictor.eval()
         for _, batch, batch_2d in test_generator.next_epoch():
-            inputs_2d = torch.from_numpy(batch_2d.astype('float32'))
-            if torch.cuda.is_available():
-                inputs_2d = inputs_2d.cuda()
+            inputs_2d = torch.from_numpy(batch_2d.astype('float32')).to(device)
 
             # Positional model
             predicted_3d_pos = predictor(inputs_2d)

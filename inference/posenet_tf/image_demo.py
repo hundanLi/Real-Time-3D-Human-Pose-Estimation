@@ -149,7 +149,7 @@ def render_image(coords_3d, skeleton, azim, input_video_frame, save=False):
 
 if __name__ == '__main__':
     start = time.time()
-    file = '../images/liuyifei2.jpg'
+    file = '../images/liuyifei1.jpg'
     # 检测2d关键点和渲染出2d姿势图
     draw_image, coords_2d = predict_2d_joints(file)
     print("2d predictor cost time: {:.3f} seconds.".format(time.time() - start))

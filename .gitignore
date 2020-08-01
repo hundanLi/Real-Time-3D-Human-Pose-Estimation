@@ -15,3 +15,5 @@ inference/posenet_pytorch/_models
 *.pkl
 runs
 **/__pycache__
+
+**/output/

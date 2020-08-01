@@ -6,6 +6,9 @@ from mxnet import nd
 # ++++++++++++++++++++注意+++++++++++++++++++++++++
 import os
 import sys
+
+sys.path.append("../../")
+
 import time
 import cv2
 import matplotlib.pyplot as plt
@@ -19,18 +22,17 @@ from common.generators import UnchunkedGenerator
 from common.model import TemporalModel
 
 device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
-sys.path.append("../../")
 
 # 1. 加载目标检测器和2d关键点检测器
 detector_name = ['yolo3_mobilenet1.0_coco', 'yolo3_darknet53_coco']
 posenet_name = ['mobile_pose_mobilenetv3_small', 'mobile_pose_resnet18_v1b', 'mobile_pose_resnet50_v1b']
-detector = model_zoo.get_model(detector_name[1], pretrained=True)
+detector = model_zoo.get_model(detector_name[0], pretrained=True)
 pose_net = model_zoo.get_model(posenet_name[1], pretrained=True)
 
 # noinspection PyUnresolvedReferences
 detector.reset_class(['person'], reuse_weights=['person'])
 pre_frame = 0
-gap = 10
+gap = 5
 # pu = None
 csb = None
 
@@ -60,6 +62,7 @@ def detect_2d_joints(frame, cur_frame, short=360):
 
     # 生成posenet的输入张量
     pose_input, upscale_bbox = detector_to_simple_pose(img, class_ids, scores, bounding_boxes)
+    pose_input, upscale_bbox = pose_input[:1], upscale_bbox[:1]
     # 预测关节点
     predict_heatmap = pose_net(pose_input)
     predict_coords, confidence = heatmap_to_coord(predict_heatmap, upscale_bbox)
@@ -210,7 +213,6 @@ def predict_3d_pos(joints_generator, predictor):
     """
     joints_left = [4, 5, 6, 11, 12, 13]
     joints_right = [1, 2, 3, 14, 15, 16]
-    pos_3d = []
     with torch.no_grad():
         predictor.eval()
         for _, batch, batch_2d in joints_generator.next_epoch():
@@ -243,9 +245,10 @@ def video_pose(filepath, ckpt_dir, ckpt_name, filter_widths, show=False, channel
     cap.set(cv2.CAP_PROP_FRAME_WIDTH, 640)
     cap.set(cv2.CAP_PROP_FRAME_HEIGHT, 360)
 
-    # 帧率
+    # 帧率和帧数
     fps = cap.get(cv2.CAP_PROP_FPS)
-    print("Original FPS: {}".format(fps))
+    frame_count = cap.get(cv2.CAP_PROP_FRAME_COUNT)
+    print("Original FPS: {}, frame count: {}".format(fps, frame_count))
     # pause = int(1000 / fps)
 
     if show:
@@ -263,6 +266,7 @@ def video_pose(filepath, ckpt_dir, ckpt_name, filter_widths, show=False, channel
     dicts = []
     i = 0
     # 因为设置了数据生成器的pad=0，因此需要获取前receive_field//2帧做准备
+    elapsed_time = 0
     print("Preparing...")
     while i < half:
         ret_val, frame = cap.read()
@@ -344,11 +348,13 @@ def video_pose(filepath, ckpt_dir, ckpt_name, filter_widths, show=False, channel
         coords_3d = predictions[0]
 
         #         print('predicted {} frame, elapsed time: {:.3f} seconds.'.format(predictions.shape[0], time.time() - fps_time))
-        fps = 1.0 / (time.time() - fps_time)
+        interval = time.time() - fps_time
+        elapsed_time += interval
+        fps = 1.0 / interval
 
         # 渲染图像
         result_image = render_image(coords_3d=coords_3d, skeleton=Skeleton(), **joints_dict)
-        cv2.putText(result_image, "FPS: %f" % fps, (10, 10), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0, 255, 0), 2)
+        cv2.putText(result_image, "FPS: %.3f" % fps, (10, 20), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0, 255, 0), 2)
         result_image = cv2.cvtColor(result_image, cv2.COLOR_RGB2BGR)
 
         if show:
@@ -365,14 +371,15 @@ def video_pose(filepath, ckpt_dir, ckpt_name, filter_widths, show=False, channel
     output_mp4.release()
     cap.release()
     cv2.destroyAllWindows()
+    print("Average Fps: {:.3f}".format(frame_count / elapsed_time))
 
 
 if __name__ == '__main__':
-    video_path = '../videos/kunkun_cut.mp4'
+    video_path = '../videos/football-2.mp4'
     filename = video_path.rsplit('/', 1)[-1]
     file_ext = filename.rsplit('.', 1)[-1]
     output_path = filename.rsplit('.', 1)[0] + "_output." + file_ext
     video_pose(video_path, ckpt_dir='../../checkpoint/detectron_pt_coco',
-               ckpt_name='arc_27_ch_512_epoch_30.bin', filter_widths=[3, 3, 3],
+               ckpt_name='arc_27_ch_512_epoch_80.bin', filter_widths=[3, 3, 3],
                show=True, channels=512, save_file=output_path)
     print("Finish prediction...")
